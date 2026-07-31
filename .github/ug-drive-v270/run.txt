@@ -1,3 +1,4 @@
 run_id=30625256319
-status=started
+status=build-success
 sha=3a3a64801ba9b65426f79102e4c69e96bb2e5e1e
+artifact=UG-Drive-v2.7.0-build
