@@ -45,11 +45,11 @@ jobs:
           profile: pixel_6
           disable-animations: true
           script: |
-            set -euo pipefail
+            set -eu
             adb install -r UG-Drive-v2.7.0-debug.apk
             adb logcat -c
             adb shell am force-stop com.unityglobal.ugdrive.v265
-            adb shell am start -W -n com.unityglobal.ugdrive.v265/.MainActivity | tee activity-start.txt
+            adb shell am start -W -n com.unityglobal.ugdrive.v265/.MainActivity > activity-start.txt
             found=0
             for i in $(seq 1 30); do
               adb shell uiautomator dump /sdcard/ug-window.xml >/dev/null 2>&1 || true
