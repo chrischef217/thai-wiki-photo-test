@@ -1,0 +1,91 @@
+name: Verify UG Drive v2.7.0 UI on macOS emulator
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/ug-drive-v270-ui-macos.yml'
+
+permissions:
+  actions: read
+  contents: write
+
+jobs:
+  ui-macos:
+    runs-on: macos-13
+    timeout-minutes: 20
+    steps:
+      - name: Publish verification start
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          p="repos/$GITHUB_REPOSITORY/contents/.github/ug-drive-v270/ui-macos-run.txt"
+          body="run_id=$GITHUB_RUN_ID\nstatus=started\n"
+          encoded="$(printf '%b' "$body" | base64)"
+          old="$(gh api "$p?ref=main" --jq '.sha' 2>/dev/null || true)"
+          if [ -n "$old" ]; then
+            gh api --method PUT "$p" -f message='ci: update UG Drive macOS UI verification start' -f content="$encoded" -f sha="$old" -f branch='main'
+          else
+            gh api --method PUT "$p" -f message='ci: publish UG Drive macOS UI verification start' -f content="$encoded" -f branch='main'
+          fi
+
+      - uses: actions/download-artifact@v4
+        with:
+          name: UG-Drive-v2.7.0-build
+          repository: chrischef217/thai-wiki-photo-test
+          run-id: 30625342887
+          github-token: ${{ github.token }}
+
+      - name: Launch and verify actual PIN screen
+        uses: reactivecircus/android-emulator-runner@v2
+        with:
+          api-level: 35
+          arch: x86_64
+          profile: pixel_6
+          disable-animations: true
+          emulator-options: -no-window -gpu swiftshader_indirect -no-snapshot -noaudio -no-boot-anim -no-metrics
+          script: |
+            adb install -r UG-Drive-v2.7.0-debug.apk
+            adb logcat -c
+            adb shell am force-stop com.unityglobal.ugdrive.v265
+            adb shell am start -W -n com.unityglobal.ugdrive.v265/.MainActivity > activity-start.txt
+            i=0; found=0; while [ "$i" -lt 30 ]; do adb shell uiautomator dump /sdcard/ug-window.xml >/dev/null 2>&1 || true; adb pull /sdcard/ug-window.xml window.xml >/dev/null 2>&1 || true; if grep -Eq '보안 PIN|PIN ความปลอดภัย|회사 문서 포털|UNITY GLOBAL' window.xml 2>/dev/null; then found=1; break; fi; i=$((i+1)); sleep 2; done; adb exec-out screencap -p > UG-Drive-v2.7.0-PIN-macos.png; adb logcat -d > logcat.txt; adb shell dumpsys activity activities > activity-dump.txt; adb shell dumpsys window > window-dump.txt; test "$found" -eq 1; test -s UG-Drive-v2.7.0-PIN-macos.png
+
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: UG-Drive-v2.7.0-ui-macos
+          path: |
+            UG-Drive-v2.7.0-PIN-macos.png
+            window.xml
+            logcat.txt
+            activity-start.txt
+            activity-dump.txt
+            window-dump.txt
+          if-no-files-found: warn
+          retention-days: 2
+
+      - name: Publish result
+        if: success()
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          p="repos/$GITHUB_REPOSITORY/contents/.github/ug-drive-v270/ui-macos-run.txt"
+          body="run_id=$GITHUB_RUN_ID\nstatus=success\nartifact=UG-Drive-v2.7.0-ui-macos\n"
+          encoded="$(printf '%b' "$body" | base64)"
+          old="$(gh api "$p?ref=main" --jq '.sha')"
+          gh api --method PUT "$p" -f message='ci: publish UG Drive macOS UI verification success' -f content="$encoded" -f sha="$old" -f branch='main'
+
+      - name: Publish failure
+        if: failure()
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set +e
+          p="repos/$GITHUB_REPOSITORY/contents/.github/ug-drive-v270/ui-macos-run.txt"
+          body="run_id=$GITHUB_RUN_ID\nstatus=failure\nartifact=UG-Drive-v2.7.0-ui-macos\n"
+          encoded="$(printf '%b' "$body" | base64)"
+          old="$(gh api "$p?ref=main" --jq '.sha' 2>/dev/null || true)"
+          [ -n "$old" ] && gh api --method PUT "$p" -f message='ci: publish UG Drive macOS UI verification failure' -f content="$encoded" -f sha="$old" -f branch='main'
