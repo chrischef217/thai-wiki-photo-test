@@ -1,0 +1,83 @@
+name: Verify UG Drive v2.7.0 rendered UI
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/ug-drive-v270-ui-verify.yml'
+
+permissions:
+  actions: read
+  contents: write
+
+jobs:
+  ui-verify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: UG-Drive-v2.7.0-build
+          repository: chrischef217/thai-wiki-photo-test
+          run-id: 30625342887
+          github-token: ${{ github.token }}
+
+      - name: Wait for actual PIN content and capture diagnostics
+        uses: reactivecircus/android-emulator-runner@v2
+        with:
+          api-level: 35
+          arch: x86_64
+          profile: pixel_6
+          disable-animations: true
+          script: |
+            set -euo pipefail
+            adb install -r UG-Drive-v2.7.0-debug.apk
+            adb logcat -c
+            adb shell am force-stop com.unityglobal.ugdrive.v265
+            adb shell am start -W -n com.unityglobal.ugdrive.v265/.MainActivity | tee activity-start.txt
+            found=0
+            for i in $(seq 1 30); do
+              adb shell uiautomator dump /sdcard/ug-window.xml >/dev/null 2>&1 || true
+              adb pull /sdcard/ug-window.xml window.xml >/dev/null 2>&1 || true
+              if grep -Eq '보안 PIN|PIN ความปลอดภัย|회사 문서 포털|UNITY GLOBAL' window.xml 2>/dev/null; then
+                found=1
+                break
+              fi
+              sleep 2
+            done
+            adb exec-out screencap -p > UG-Drive-v2.7.0-PIN-rendered.png
+            adb logcat -d > logcat.txt
+            adb shell dumpsys activity activities > activity-dump.txt
+            adb shell dumpsys window > window-dump.txt
+            test "$found" -eq 1
+            test -s UG-Drive-v2.7.0-PIN-rendered.png
+
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: UG-Drive-v2.7.0-ui-verified
+          path: |
+            UG-Drive-v2.7.0-PIN-rendered.png
+            window.xml
+            logcat.txt
+            activity-start.txt
+            activity-dump.txt
+            window-dump.txt
+          if-no-files-found: warn
+          retention-days: 2
+
+      - name: Publish result
+        if: success()
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          p="repos/$GITHUB_REPOSITORY/contents/.github/ug-drive-v270/ui-verify-run.txt"
+          body="run_id=$GITHUB_RUN_ID\nstatus=success\nartifact=UG-Drive-v2.7.0-ui-verified\n"
+          encoded="$(printf '%b' "$body" | base64 -w0)"
+          old="$(gh api "$p?ref=main" --jq '.sha' 2>/dev/null || true)"
+          if [ -n "$old" ]; then
+            gh api --method PUT "$p" -f message='ci: update UG Drive UI verification' -f content="$encoded" -f sha="$old" -f branch='main'
+          else
+            gh api --method PUT "$p" -f message='ci: publish UG Drive UI verification' -f content="$encoded" -f branch='main'
+          fi
