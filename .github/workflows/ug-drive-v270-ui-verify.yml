@@ -45,27 +45,11 @@ jobs:
           profile: pixel_6
           disable-animations: true
           script: |
-            set -eu
             adb install -r UG-Drive-v2.7.0-debug.apk
             adb logcat -c
             adb shell am force-stop com.unityglobal.ugdrive.v265
             adb shell am start -W -n com.unityglobal.ugdrive.v265/.MainActivity > activity-start.txt
-            found=0
-            for i in $(seq 1 30); do
-              adb shell uiautomator dump /sdcard/ug-window.xml >/dev/null 2>&1 || true
-              adb pull /sdcard/ug-window.xml window.xml >/dev/null 2>&1 || true
-              if grep -Eq '보안 PIN|PIN ความปลอดภัย|회사 문서 포털|UNITY GLOBAL' window.xml 2>/dev/null; then
-                found=1
-                break
-              fi
-              sleep 2
-            done
-            adb exec-out screencap -p > UG-Drive-v2.7.0-PIN-rendered.png
-            adb logcat -d > logcat.txt
-            adb shell dumpsys activity activities > activity-dump.txt
-            adb shell dumpsys window > window-dump.txt
-            test "$found" -eq 1
-            test -s UG-Drive-v2.7.0-PIN-rendered.png
+            i=0; found=0; while [ "$i" -lt 30 ]; do adb shell uiautomator dump /sdcard/ug-window.xml >/dev/null 2>&1 || true; adb pull /sdcard/ug-window.xml window.xml >/dev/null 2>&1 || true; if grep -Eq '보안 PIN|PIN ความปลอดภัย|회사 문서 포털|UNITY GLOBAL' window.xml 2>/dev/null; then found=1; break; fi; i=$((i+1)); sleep 2; done; adb exec-out screencap -p > UG-Drive-v2.7.0-PIN-rendered.png; adb logcat -d > logcat.txt; adb shell dumpsys activity activities > activity-dump.txt; adb shell dumpsys window > window-dump.txt; test "$found" -eq 1; test -s UG-Drive-v2.7.0-PIN-rendered.png
 
       - uses: actions/upload-artifact@v4
         if: always()
