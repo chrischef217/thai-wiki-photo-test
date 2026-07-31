@@ -1,0 +1,44 @@
+name: Export Android apksigner tool
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/export-apksigner.yml'
+
+permissions:
+  contents: write
+
+jobs:
+  export:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Locate apksigner
+        run: |
+          set -euo pipefail
+          jar="$(find "$ANDROID_SDK_ROOT/build-tools" -path '*/lib/apksigner.jar' | sort -V | tail -n 1)"
+          test -s "$jar"
+          cp "$jar" apksigner.jar
+          sha256sum apksigner.jar > apksigner.jar.sha256
+      - uses: actions/upload-artifact@v4
+        with:
+          name: Android-apksigner-tool
+          path: |
+            apksigner.jar
+            apksigner.jar.sha256
+          if-no-files-found: error
+          retention-days: 1
+      - name: Publish status
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          p="repos/$GITHUB_REPOSITORY/contents/.github/ug-drive-v270/apksigner-run.txt"
+          body="run_id=$GITHUB_RUN_ID\nstatus=success\nartifact=Android-apksigner-tool\n"
+          encoded="$(printf '%b' "$body" | base64 -w0)"
+          old="$(gh api "$p?ref=main" --jq '.sha' 2>/dev/null || true)"
+          if [ -n "$old" ]; then
+            gh api --method PUT "$p" -f message='ci: update apksigner export' -f content="$encoded" -f sha="$old" -f branch='main'
+          else
+            gh api --method PUT "$p" -f message='ci: publish apksigner export' -f content="$encoded" -f branch='main'
+          fi
