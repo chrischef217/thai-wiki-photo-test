@@ -1,2 +1,3 @@
 run_id=30628700906
-status=started-clean-capture
+status=success-clean-capture
+artifact=UG-Drive-v2.7.0-ui-clean
