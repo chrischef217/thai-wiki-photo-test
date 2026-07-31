@@ -1,2 +1,3 @@
 run_id=30627451424
-status=started
+status=success
+artifact=UG-Drive-v2.7.0-ui-verified
