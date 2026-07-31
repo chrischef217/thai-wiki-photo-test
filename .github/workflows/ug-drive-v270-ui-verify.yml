@@ -21,13 +21,13 @@ jobs:
         run: |
           set -euo pipefail
           p="repos/$GITHUB_REPOSITORY/contents/.github/ug-drive-v270/ui-verify-run.txt"
-          body="run_id=$GITHUB_RUN_ID\nstatus=started\n"
+          body="run_id=$GITHUB_RUN_ID\nstatus=started-clean-capture\n"
           encoded="$(printf '%b' "$body" | base64 -w0)"
           old="$(gh api "$p?ref=main" --jq '.sha' 2>/dev/null || true)"
           if [ -n "$old" ]; then
-            gh api --method PUT "$p" -f message='ci: update UG Drive UI verification start' -f content="$encoded" -f sha="$old" -f branch='main'
+            gh api --method PUT "$p" -f message='ci: update UG Drive clean UI verification start' -f content="$encoded" -f sha="$old" -f branch='main'
           else
-            gh api --method PUT "$p" -f message='ci: publish UG Drive UI verification start' -f content="$encoded" -f branch='main'
+            gh api --method PUT "$p" -f message='ci: publish UG Drive clean UI verification start' -f content="$encoded" -f branch='main'
           fi
 
       - uses: actions/download-artifact@v4
@@ -37,7 +37,7 @@ jobs:
           run-id: 30625342887
           github-token: ${{ github.token }}
 
-      - name: Wait for actual PIN content and capture diagnostics
+      - name: Capture unobstructed PIN screen
         uses: reactivecircus/android-emulator-runner@v2
         with:
           api-level: 35
@@ -49,14 +49,16 @@ jobs:
             adb logcat -c
             adb shell am force-stop com.unityglobal.ugdrive.v265
             adb shell am start -W -n com.unityglobal.ugdrive.v265/.MainActivity > activity-start.txt
-            i=0; found=0; while [ "$i" -lt 30 ]; do adb shell uiautomator dump /sdcard/ug-window.xml >/dev/null 2>&1 || true; adb pull /sdcard/ug-window.xml window.xml >/dev/null 2>&1 || true; if grep -Eq '보안 PIN|PIN ความปลอดภัย|회사 문서 포털|UNITY GLOBAL' window.xml 2>/dev/null; then found=1; break; fi; i=$((i+1)); sleep 2; done; adb exec-out screencap -p > UG-Drive-v2.7.0-PIN-rendered.png; adb logcat -d > logcat.txt; adb shell dumpsys activity activities > activity-dump.txt; adb shell dumpsys window > window-dump.txt; test "$found" -eq 1; test -s UG-Drive-v2.7.0-PIN-rendered.png
+            sleep 4
+            adb shell uiautomator dump /sdcard/pre.xml >/dev/null 2>&1 || true; adb pull /sdcard/pre.xml pre.xml >/dev/null 2>&1 || true; if grep -q "System UI isn't responding" pre.xml 2>/dev/null; then adb shell input tap 540 1332; sleep 6; fi; i=0; found=0; clear=0; while [ "$i" -lt 30 ]; do adb shell uiautomator dump /sdcard/ug-window.xml >/dev/null 2>&1 || true; adb pull /sdcard/ug-window.xml window.xml >/dev/null 2>&1 || true; if grep -Eq '보안 PIN|PIN ความปลอดภัย|회사 문서 포털|UNITY GLOBAL' window.xml 2>/dev/null; then found=1; fi; if ! grep -Eq "isn't responding|Close app|android:id/aerr_wait" window.xml 2>/dev/null; then clear=1; fi; if [ "$found" -eq 1 ] && [ "$clear" -eq 1 ]; then break; fi; if grep -q "System UI isn't responding" window.xml 2>/dev/null; then adb shell input tap 540 1332; fi; i=$((i+1)); sleep 2; done; adb exec-out screencap -p > UG-Drive-v2.7.0-PIN-clean.png; adb logcat -d > logcat.txt; adb shell dumpsys activity activities > activity-dump.txt; adb shell dumpsys window > window-dump.txt; test "$found" -eq 1; test "$clear" -eq 1; test -s UG-Drive-v2.7.0-PIN-clean.png
 
       - uses: actions/upload-artifact@v4
         if: always()
         with:
-          name: UG-Drive-v2.7.0-ui-verified
+          name: UG-Drive-v2.7.0-ui-clean
           path: |
-            UG-Drive-v2.7.0-PIN-rendered.png
+            UG-Drive-v2.7.0-PIN-clean.png
+            pre.xml
             window.xml
             logcat.txt
             activity-start.txt
@@ -72,10 +74,10 @@ jobs:
         run: |
           set -euo pipefail
           p="repos/$GITHUB_REPOSITORY/contents/.github/ug-drive-v270/ui-verify-run.txt"
-          body="run_id=$GITHUB_RUN_ID\nstatus=success\nartifact=UG-Drive-v2.7.0-ui-verified\n"
+          body="run_id=$GITHUB_RUN_ID\nstatus=success-clean-capture\nartifact=UG-Drive-v2.7.0-ui-clean\n"
           encoded="$(printf '%b' "$body" | base64 -w0)"
           old="$(gh api "$p?ref=main" --jq '.sha')"
-          gh api --method PUT "$p" -f message='ci: publish UG Drive UI verification success' -f content="$encoded" -f sha="$old" -f branch='main'
+          gh api --method PUT "$p" -f message='ci: publish UG Drive clean UI verification success' -f content="$encoded" -f sha="$old" -f branch='main'
 
       - name: Publish failure
         if: failure()
@@ -84,7 +86,7 @@ jobs:
         run: |
           set +e
           p="repos/$GITHUB_REPOSITORY/contents/.github/ug-drive-v270/ui-verify-run.txt"
-          body="run_id=$GITHUB_RUN_ID\nstatus=failure\nartifact=UG-Drive-v2.7.0-ui-verified\n"
+          body="run_id=$GITHUB_RUN_ID\nstatus=failure-clean-capture\nartifact=UG-Drive-v2.7.0-ui-clean\n"
           encoded="$(printf '%b' "$body" | base64 -w0)"
           old="$(gh api "$p?ref=main" --jq '.sha' 2>/dev/null || true)"
-          [ -n "$old" ] && gh api --method PUT "$p" -f message='ci: publish UG Drive UI verification failure' -f content="$encoded" -f sha="$old" -f branch='main'
+          [ -n "$old" ] && gh api --method PUT "$p" -f message='ci: publish UG Drive clean UI verification failure' -f content="$encoded" -f sha="$old" -f branch='main'
