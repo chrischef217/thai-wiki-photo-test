@@ -15,6 +15,21 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 25
     steps:
+      - name: Publish verification start
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          p="repos/$GITHUB_REPOSITORY/contents/.github/ug-drive-v270/ui-verify-run.txt"
+          body="run_id=$GITHUB_RUN_ID\nstatus=started\n"
+          encoded="$(printf '%b' "$body" | base64 -w0)"
+          old="$(gh api "$p?ref=main" --jq '.sha' 2>/dev/null || true)"
+          if [ -n "$old" ]; then
+            gh api --method PUT "$p" -f message='ci: update UG Drive UI verification start' -f content="$encoded" -f sha="$old" -f branch='main'
+          else
+            gh api --method PUT "$p" -f message='ci: publish UG Drive UI verification start' -f content="$encoded" -f branch='main'
+          fi
+
       - uses: actions/download-artifact@v4
         with:
           name: UG-Drive-v2.7.0-build
@@ -75,9 +90,17 @@ jobs:
           p="repos/$GITHUB_REPOSITORY/contents/.github/ug-drive-v270/ui-verify-run.txt"
           body="run_id=$GITHUB_RUN_ID\nstatus=success\nartifact=UG-Drive-v2.7.0-ui-verified\n"
           encoded="$(printf '%b' "$body" | base64 -w0)"
+          old="$(gh api "$p?ref=main" --jq '.sha')"
+          gh api --method PUT "$p" -f message='ci: publish UG Drive UI verification success' -f content="$encoded" -f sha="$old" -f branch='main'
+
+      - name: Publish failure
+        if: failure()
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set +e
+          p="repos/$GITHUB_REPOSITORY/contents/.github/ug-drive-v270/ui-verify-run.txt"
+          body="run_id=$GITHUB_RUN_ID\nstatus=failure\nartifact=UG-Drive-v2.7.0-ui-verified\n"
+          encoded="$(printf '%b' "$body" | base64 -w0)"
           old="$(gh api "$p?ref=main" --jq '.sha' 2>/dev/null || true)"
-          if [ -n "$old" ]; then
-            gh api --method PUT "$p" -f message='ci: update UG Drive UI verification' -f content="$encoded" -f sha="$old" -f branch='main'
-          else
-            gh api --method PUT "$p" -f message='ci: publish UG Drive UI verification' -f content="$encoded" -f branch='main'
-          fi
+          [ -n "$old" ] && gh api --method PUT "$p" -f message='ci: publish UG Drive UI verification failure' -f content="$encoded" -f sha="$old" -f branch='main'
