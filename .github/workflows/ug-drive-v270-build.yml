@@ -1,0 +1,146 @@
+name: Build and verify UG Drive v2.7.0
+
+on:
+  push:
+    branches: [temp-ug-drive-v270-build]
+    paths:
+      - '.github/workflows/ug-drive-v270-build.yml'
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    steps:
+      - name: Publish run start
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          p="repos/$GITHUB_REPOSITORY/contents/.github/ug-drive-v270/run.txt"
+          body="run_id=$GITHUB_RUN_ID\nstatus=started\nsha=$GITHUB_SHA\n"
+          encoded="$(printf '%b' "$body" | base64 -w0)"
+          old="$(gh api "$p?ref=temp-ug-drive-v270-build" --jq '.sha' 2>/dev/null || true)"
+          if [ -n "$old" ]; then
+            gh api --method PUT "$p" -f message='ci: update UG Drive v2.7 build status' -f content="$encoded" -f sha="$old" -f branch='temp-ug-drive-v270-build'
+          else
+            gh api --method PUT "$p" -f message='ci: publish UG Drive v2.7 build status' -f content="$encoded" -f branch='temp-ug-drive-v270-build'
+          fi
+
+      - uses: actions/checkout@v4
+        with:
+          ref: temp-ug-drive-v270-build
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: '8.10.2'
+
+      - name: Restore and validate source
+        run: |
+          set -euo pipefail
+          rm -rf /tmp/ugdrive-v270
+          mkdir -p /tmp/ugdrive-v270
+          cat .github/ug-drive-v270/parts/part-*.b64 | tr -d '\n\r ' | base64 -d > /tmp/ugdrive-v270.zip
+          echo '7fd200ec2c8cdf9c4ed59195094d7ca2f009426b3ab272c832c14e17bdcbe6d2  /tmp/ugdrive-v270.zip' | sha256sum -c -
+          unzip -q /tmp/ugdrive-v270.zip -d /tmp/ugdrive-v270
+          echo "sdk.dir=$ANDROID_SDK_ROOT" > /tmp/ugdrive-v270/local.properties
+          grep -q 'WindowInsetsCompat.Type.systemBars()' /tmp/ugdrive-v270/app/src/main/java/com/unityglobal/ugdrive/v265/MainActivity.java
+          grep -q 'WindowInsetsCompat.Type.displayCutout()' /tmp/ugdrive-v270/app/src/main/java/com/unityglobal/ugdrive/v265/MainActivity.java
+          grep -q 'Intent.ACTION_OPEN_DOCUMENT_TREE' /tmp/ugdrive-v270/app/src/main/java/com/unityglobal/ugdrive/v265/MainActivity.java
+          grep -q 'takePersistableUriPermission' /tmp/ugdrive-v270/app/src/main/java/com/unityglobal/ugdrive/v265/MainActivity.java
+          grep -q 'DocumentFile.fromTreeUri' /tmp/ugdrive-v270/app/src/main/java/com/unityglobal/ugdrive/v265/MainActivity.java
+          grep -q 'listFiles()' /tmp/ugdrive-v270/app/src/main/java/com/unityglobal/ugdrive/v265/MainActivity.java
+          ! grep -q 'SnapshotCatalog\|snapshotChildren\|PREF_API' /tmp/ugdrive-v270/app/src/main/java/com/unityglobal/ugdrive/v265/MainActivity.java
+
+      - name: Compile release and debug APKs
+        working-directory: /tmp/ugdrive-v270
+        run: gradle --no-daemon clean assembleRelease assembleDebug --stacktrace
+
+      - name: Verify package version and alignment
+        run: |
+          set -euo pipefail
+          AAPT="$(find "$ANDROID_SDK_ROOT/build-tools" -type f -name aapt | sort -V | tail -n 1)"
+          ZIPALIGN="$(find "$ANDROID_SDK_ROOT/build-tools" -type f -name zipalign | sort -V | tail -n 1)"
+          unsigned="/tmp/ugdrive-v270/app/build/outputs/apk/release/app-release-unsigned.apk"
+          debug="/tmp/ugdrive-v270/app/build/outputs/apk/debug/app-debug.apk"
+          test -s "$unsigned"
+          test -s "$debug"
+          "$ZIPALIGN" -p -f 4 "$unsigned" "$GITHUB_WORKSPACE/UG-Drive-v2.7.0-unsigned-aligned.apk"
+          "$ZIPALIGN" -c -P 16 -v 4 "$GITHUB_WORKSPACE/UG-Drive-v2.7.0-unsigned-aligned.apk"
+          "$AAPT" dump badging "$GITHUB_WORKSPACE/UG-Drive-v2.7.0-unsigned-aligned.apk" > "$GITHUB_WORKSPACE/badging.txt"
+          grep -q "package: name='com.unityglobal.ugdrive.v265' versionCode='270' versionName='2.7.0'" "$GITHUB_WORKSPACE/badging.txt"
+          cp "$debug" "$GITHUB_WORKSPACE/UG-Drive-v2.7.0-debug.apk"
+          sha256sum "$GITHUB_WORKSPACE/UG-Drive-v2.7.0-unsigned-aligned.apk" > "$GITHUB_WORKSPACE/unsigned-sha256.txt"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: UG-Drive-v2.7.0-build
+          path: |
+            UG-Drive-v2.7.0-unsigned-aligned.apk
+            UG-Drive-v2.7.0-debug.apk
+            badging.txt
+            unsigned-sha256.txt
+          if-no-files-found: error
+          retention-days: 2
+
+      - name: Publish build success
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          p="repos/$GITHUB_REPOSITORY/contents/.github/ug-drive-v270/run.txt"
+          body="run_id=$GITHUB_RUN_ID\nstatus=build-success\nsha=$GITHUB_SHA\nartifact=UG-Drive-v2.7.0-build\n"
+          encoded="$(printf '%b' "$body" | base64 -w0)"
+          old="$(gh api "$p?ref=temp-ug-drive-v270-build" --jq '.sha')"
+          gh api --method PUT "$p" -f message='ci: publish UG Drive v2.7 build success' -f content="$encoded" -f sha="$old" -f branch='temp-ug-drive-v270-build'
+
+      - name: Publish build failure
+        if: failure()
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set +e
+          p="repos/$GITHUB_REPOSITORY/contents/.github/ug-drive-v270/run.txt"
+          body="run_id=$GITHUB_RUN_ID\nstatus=failure\nsha=$GITHUB_SHA\n"
+          encoded="$(printf '%b' "$body" | base64 -w0)"
+          old="$(gh api "$p?ref=temp-ug-drive-v270-build" --jq '.sha' 2>/dev/null || true)"
+          [ -n "$old" ] && gh api --method PUT "$p" -f message='ci: publish UG Drive v2.7 failure' -f content="$encoded" -f sha="$old" -f branch='temp-ug-drive-v270-build'
+
+  ui-smoke:
+    needs: build
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: UG-Drive-v2.7.0-build
+
+      - name: Run PIN screen on Android emulator
+        uses: reactivecircus/android-emulator-runner@v2
+        with:
+          api-level: 35
+          arch: x86_64
+          profile: pixel_6
+          disable-animations: true
+          script: |
+            adb install -r UG-Drive-v2.7.0-debug.apk
+            adb shell am force-stop com.unityglobal.ugdrive.v265
+            adb shell monkey -p com.unityglobal.ugdrive.v265 -c android.intent.category.LAUNCHER 1
+            sleep 4
+            adb shell dumpsys window | grep -q 'com.unityglobal.ugdrive.v265'
+            adb exec-out screencap -p > UG-Drive-v2.7.0-PIN-screen.png
+            test -s UG-Drive-v2.7.0-PIN-screen.png
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: UG-Drive-v2.7.0-ui-smoke
+          path: UG-Drive-v2.7.0-PIN-screen.png
+          if-no-files-found: error
+          retention-days: 2
